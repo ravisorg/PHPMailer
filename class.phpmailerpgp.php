@@ -8,48 +8,298 @@
 class PHPMailerPGP extends PHPMailer
 {
 
+    protected $gnupg = null;
+
     /**
      * The signing hash algorithm. 'MD5', SHA1, or SHA256. SHA256 (the default) is highly recommended
      * unless you need to deal with an old client that doesn't support it. SHA1 and MD5 are 
      * currently considered cryptographically weak.
+     *
+     * This is apparently not supported by the PHP GnuPG module.
      * @type string
      */
-    protected $micalg = 'SHA256';
+    protected $micalg = 'SHA1';
 
     /**
-     * The path to the public PGP key that we will use to encrypt the message. Generally this is the
-     * key of the person in the email's "To" line. If this is not set, the message will not be 
-     * encrypted.
-     * @type string
-     * @access protected
+     * Should the message be encrypted.
+     * @type boolean
+     * @see  PHPMailerPGP::encrypt()
      */
-    protected $pgp_encrypt_key_file = '';
+    protected $encrypted = false;
 
     /**
-     * The path to the private PGP key that we will use to sign the message. Generally this is the
-     * key of the person in the email's "From" line. If this is not set, the message will not be
-     * signed.
-     * @type string
-     * @access protected
+     * Should the message be signed.
+     * @type boolean
+     * @see  PHPMailerPGP::sign()
      */
-    protected $pgp_signature_key_file = '';
+    protected $signed = false;
 
     /**
-     * The password to use to decrypt pgp_signature_key_file, if required.
-     * @type string
-     * @access protected
+     * If encrypting the email, should the list of recipients from the email be used to try and 
+     * find encryption keys? ie: if you're sending an encrypted email, in theory you want a copy 
+     * that all of them can decrypt. This may, however, not be true if you're sending to an email 
+     * alias (and their public key is listed under a different address).
+     * @type boolean
+     * @see  PHPMailerPGP::autoAddRecipients()
      */
-    protected $pgp_signature_key_pass = '';
+    protected $autoRecipients = true;
 
-    public function signPGP($pgp_signature_key_file,$pgp_signature_key_pass = '') {
-        $this->pgp_signature_key_file = $pgp_signature_key_file;
-        $this->pgp_signature_key_pass = $pgp_signature_key_pass;
+    /**
+     * If signing the email, should the signing key be selected based on the From address in the 
+     * email? Similar to $autoRecipients but for the signature.
+     * @type boolean
+     * @see  PHPMailerPGP::autoAddSignature()
+     */
+    protected $autoSign = true;
+
+    /**
+     * An associative array of identifier=>keyFingerprint for the recipients we'll encrypt the email
+     * to, where identifier is usually the email address, but could be anything used to look up a 
+     * key (including the fingerprint itself). This is populated either by autoAddRecipients or by 
+     * calling addRecipient.
+     * @type array
+     * @see  PHPMailerPGP::autoAddRecipients()
+     * @see  PHPMailerPGP::addRecipient()
+     */
+    protected $recipientKeys = array();
+
+    /**
+     * The fingerprint of the key that will be used to sign the email. Populated either with 
+     * autoAddSignature or addSignature.
+     * @type string
+     * @see  PHPMailerPGP::autoAddSignature()
+     * @see  PHPMailerPGP::addSignature()
+     */
+    protected $signingKey = null;
+
+    /**
+     * An associative array of keyFingerprint=>passwords to decrypt secret keys (if needed). 
+     * Populated by calling addKeyPassphrase. Pointless at the moment because the GnuPG module in 
+     * PHP doesn't support decrypting keys with passwords. The command line client does, so this 
+     * method stays for now.
+     * @type array
+     * @see  PHPMailerPGP::addKeyPassphrase()
+     */
+    private $keyPassphrases = array();
+
+    /**
+     * Specifies the home directory for the GnuPG keyrings. By default this is the user's home 
+     * directory + /.gnupg, however when running on a web server (eg: Apache) the home directory 
+     * will likely not exist and/or not be writable. Set this by calling setGPGHome before calling 
+     * any other encryption/signing methods.
+     * @var string
+     * @see  PHPMailerPGP::setGPGHome()
+     */
+    protected $gnupgHome = null;
+
+    /**
+     * Initializes the GnuPG class after checking to make sure it's available. Called by anything 
+     * that uses the GnuPG methods before they attempt anything.
+     * @return void
+     * @access private
+     */
+    protected function initGNUPG() {
+        if (!class_exists('gnupg')) {
+            throw new phpmailerPGPException('PHPMailerPGP requires the GnuPG class');
+        }
+
+        if (!$this->gnupgHome) {
+            $this->gnupgHome = $_SERVER['HOME'].'/.gnupg';
+        }
+        if (!file_exists($this->gnupgHome)) {
+            throw new phpmailerPGPException('GnuPG home path does not exist');
+        }
+        putenv("GNUPGHOME=".escapeshellcmd($this->gnupgHome));
+
+        if (!$this->gnupg) {
+            $this->gnupg = new gnupg();
+        }
+        $this->gnupg->seterrormode(gnupg::ERROR_EXCEPTION);
     }
 
-    public function encryptPGP($pgp_recipient_key_file) {
-        $this->pgp_encrypt_key_file = $pgp_recipient_key_file;
+    /**
+     * Sets the home directory for the GnuPG keyrings. By default this is the user's home 
+     * directory + /.gnupg, however when running on a web server (eg: Apache) the home directory 
+     * will likely not exist and/or not be writable. Call this before calling any other encryption
+     * /signing methods if needed.
+     * @param string $home The complete path to the GnuPG keyring directory (eg: $HOME/.gnupg)
+     * @return void
+     */
+    public function setGPGHome($home) {
+        if (!file_exists($home)) {
+            throw new phpmailerPGPException('Specified path does not exist');
+        }
+        $this->gnupgHome = $home;
     }
 
+    /**
+     * Specify if you want the email to be signed or not. By default, emails are not signed, so you
+     * must call this before calling Send() if you want a signature attached. If you choose to sign
+     * and encrypt an email, it will always be signed first, then encrypted, regardless of the order
+     * you call sign() and encrypt() in.
+     * @param  boolean $sign Sign the email? (true/false)
+     * @return void
+     * @see  PHPMailerPGP::autoAddSignature()
+     * @see  PHPMailerPGP::addSignature()
+     */
+    public function sign($sign=true) {
+        $this->initGNUPG();
+        $this->signed = (bool) $sign;
+    }
+
+    /**
+     * If the email is being signed, should the signing key be looked up automatically based on the 
+     * From address in the email? This is on by default, if you turn it off you'll need to call 
+     * addSignature with the email address or fingerprint of the key you want to sign the message.
+     * 
+     * Auto adding signatures will fail if the sender isn't found, or if multiple valid keys are 
+     * found for a sender. You can solve both issues by calling addSignature before sending.
+     * @param  boolean $autoAdd Automatically attempt to find signing keys based on From address?
+     * @return void
+     * @see  PHPMailerPGP::addSignature()
+     */
+    public function autoAddSignature($autoAdd=true) {
+        $this->initGNUPG();
+
+        $this->autoSign = $autoAdd;
+    }
+
+    /**
+     * Specifies the key to use when signing the message. To specify an exact key, pass in a key
+     * fingerprint as the identifier.
+     * @param string $identifier Something to search for unique to the key you want to use. Often 
+     * an email address, but could be a key fingerprint, key ID, name, etc.
+     * @param string $passphrase If the secret key is encrypted, this is the passphrase used to 
+     * decrypt it. 
+     * 
+     * Unfortunately not supported in PHP's GnuPG module, so at the moment does nothing (kept 
+     * because the command line gpg program can use it).
+     * @see  PHPMailerPGP::autoAddSignature()
+     * @see  PHPMailerPGP::addKeyPassphrase()
+     */
+    public function addSignature($identifier,$passphrase=null) {
+        $this->initGNUPG();
+
+        $keyFingerprint = $this->getKey($identifier,'sign');
+
+        $this->signingKey = $keyFingerprint;
+        if ($passphrase) {
+            $this->addKeyPassphrase($keyFingerprint,$passphrase);
+        }
+    }
+
+    /**
+     * Specify if you want the email to be encrypted or not. By default, emails are not encrypted, 
+     * so you must call this before calling Send() if you want the message encrypted. If you choose 
+     * to sign and encrypt an email, it will always be signed first, then encrypted, regardless of 
+     * the order you call sign() and encrypt() in.
+     * @param  boolean $encrypt Encrypt the email? (true/false)
+     * @return void
+     * @see  PHPMailerPGP::autoAddRecipients()
+     * @see  PHPMailerPGP::addRecipient()
+     */
+    public function encrypt($encrypt=true) {
+        $this->initGNUPG();
+        $this->encrypted = (bool) $encrypt;
+    }
+
+    /**
+     * If the email is being encrypted, should the list of recipient email addresses (to, cc, bcc, 
+     * etc) in the email be used to automatically try and find encryption keys in the local keyring
+     * before sending? This is on by default, if you turn it off you'll need to call addRecipient
+     * for anyone who you want to encrypt a copy of the email for. 
+     * 
+     * Auto adding recipients will fail if a recipient isn't found, or if multiple valid keys are 
+     * found for a recipient. You can solve both issues by calling addRecipient before sending (you
+     * can use autoAddRecipients and addRecipient together).
+     * @param  boolean $autoAdd Automatically attempt to find encryption keys based on recipients?
+     * @return void
+     * @see  PHPMailerPGP::addRecipient()
+     */
+    public function autoAddRecipients($autoAdd=true) {
+        $this->initGNUPG();
+        $this->autoRecipients = (bool) $autoAdd;
+    }
+
+    /**
+     * Adds a recipient to encrypt a copy of the email for. If you exclude a key fingerprint, we 
+     * will try to find a matching key based on the identifier. However if no match is found, or 
+     * if multiple valid keys are found, this will fail. Specifying a key fingerprint avoids these
+     * issues.
+     * @param string $identifier Something to search for unique to the key you want to use. Often 
+     * an email address, but could be a key fingerprint, key ID, name, etc.
+     * @param string $keyFingerprint The exact key fingerprint to use with this recipient.
+     * @see  PHPMailerPGP::autoAddRecipients()
+     */
+    public function addRecipient($identifier,$keyFingerprint=null) {
+        $this->initGNUPG();
+
+        if (!$keyFingerprint) {
+            $keyFingerprint = $this->getKey($identifier,'encrypt');
+        }
+
+        $this->recipientKeys[$identifier] = $keyFingerprint;
+    }
+
+    /**
+     * If you're using a key that's encrypted, call this to specify the password to decrypt the key
+     * before attempting to use it.
+     * 
+     * Unfortunately not supported in PHP's GnuPG module, so at the moment does nothing (kept 
+     * because the command line gpg program can use it).
+     * @param string $identifier Something to search for unique to the key you want to use. Often 
+     * an email address, but could be a key fingerprint, key ID, name, etc.
+     * @param string $passphrase If the secret key is encrypted, this is the passphrase used to 
+     * decrypt it. 
+     */
+    public function addKeyPassphrase($identifier,$passphrase) {
+        $this->initGNUPG();
+
+        $keyFingerprint = $this->getKey($identifier,'sign');
+        $this->keyPassphrases[$keyFingerprint] = $passphrase;
+    }
+
+    /**
+     * Imports one or more keys into the local user's keychain. These can be secret or public keys,
+     * generally anything exported by (eg) gpg --export. The results of the import are written to
+     * PHPMailer's debug log.
+     * @param  string $data One or more GPG/PGP keys
+     * @return void
+     * @see  PHPMailerPGP::importKeyFile()
+     */
+    public function importKey($data) {
+        $this->initGNUPG();
+
+        $results = $this->gnupg->import($data);
+        $this->edebug($results['imported'].' keys imported');
+        $this->edebug($results['unchanged'].' keys unchanged');
+        $this->edebug($results['newuserids'].' new user ids imported');
+        $this->edebug($results['newsubkeys'].' new subkeys imported');
+        $this->edebug($results['secretimported'].' secret keys imported');
+        $this->edebug($results['secretunchanged'].' secret keys unchanged');
+        $this->edebug($results['newsignatures'].' new signatures imported');
+        $this->edebug($results['skippedkeys'].' skipped keys');
+    }
+
+    /**
+     * Imports one or more keys from a file into the local user's keychain. These can be secret or 
+     * public keys, generally anything exported by (eg) gpg --export. The results of the import are 
+     * written to PHPMailer's debug log.
+     * @param  string $data One or more GPG/PGP keys
+     * @return void
+     * @see  PHPMailerPGP::importKey()
+     */
+    public function importKeyFile($path) {
+        $this->importKey(file_get_contents($path));
+    }
+
+    /**
+     * Get the message MIME type headers.
+     *
+     * Extended from PHPMailer to add support for encrypted and signed content type headers.
+     * @access public
+     * @return string
+     */
     public function getMailMIME()
     {
         $result = '';
@@ -79,8 +329,10 @@ class PHPMailerPGP extends PHPMailer
     }
 
     /**
-     * Assemble the message body, signs it (if a signing key is provided) and encrypts it (if 
-     * an encryption key is provided).
+     * Assemble the message body.
+     * 
+     * Extended from PHPMailer to optionally sign and encrypt the message before it's sent.
+     * 
      * Returns an empty string on failure.
      * @access public
      * @throws phpmailerException
@@ -89,7 +341,7 @@ class PHPMailerPGP extends PHPMailer
     public function createBody()
     {
 
-        if ($this->pgp_signature_key_file) {
+        if ($this->signed) {
             // PGP/Mime requires line endings that are CRLF (RFC3156 section 5)
             $this->LE = "\r\n";
 
@@ -106,7 +358,7 @@ class PHPMailerPGP extends PHPMailer
         }
 
         // If we're using PGP to sign the message, do that before encrypting.
-        if ($this->pgp_signature_key_file) {
+        if ($this->signed) {
             // Generate a new "body" that contains all the mime parts of the existing body, encrypt
             // it, then replace the body with the encrypted content.
 
@@ -124,8 +376,16 @@ class PHPMailerPGP extends PHPMailer
             // Remove excess trailing newlines (RFC3156 section 5.4)
             $signedBody = rtrim(implode('',$lines))."\r\n";
 
+            // Who is signing it?
+            if (!$this->signingKey && $this->autoSign) {
+                $this->addSignature($this->getKey($this->From,'sign'));
+            }
+            if (!$this->signingKey) {
+                throw new phpmailerPGPException('Signing has been enabled, but no signature has been added. Use autoAddSignature() or addSignature()');
+            }
+
             // Sign it
-            $signature = $this->pgp_sign_string($signedBody);
+            $signature = $this->pgp_sign_string($signedBody,$this->signingKey);
 
             // The main email MIME type is no longer what the developer specified, it's now 
             // multipart/signed
@@ -162,7 +422,7 @@ class PHPMailerPGP extends PHPMailer
         }
 
         // If we're using PGP to encrypt the message, do that now.
-        if ($this->pgp_encrypt_key_file) {
+        if ($this->encrypted) {
             // Generate a new "body" that contains all the mime parts of the existing body, encrypt
             // it, then replace the body with the encrypted content.
             // Note that this body may be inherited from the signing code above, which inherited it
@@ -171,8 +431,21 @@ class PHPMailerPGP extends PHPMailer
             // Add in headers so when the encrypted chunk is decoded, it looks like a message block
             $encryptedBody = $this->getMailMIME() . $body;
 
-            // Encrypt it
-            $encryptedBody = $this->pgp_encrypt_string($encryptedBody,$this->pgp_encrypt_key_file);
+            // Who are we sending it to?
+            if ($this->autoRecipients) {
+                $recipients = $this->getAllRecipientAddresses();
+                foreach ($recipients as $recipient=>$temp) {
+                    if (!isset($this->recipientKeys[$recipient])) {
+                        $this->addRecipient($recipient);
+                    }
+                }
+            }
+            if (!$this->recipientKeys) {
+                throw new phpmailerPGPException('Encryption has been enabled, but no recipients have been added. Use autoAddRecipients() or addRecipient()');
+            }
+
+            // Encrypt it for all those people
+            $encryptedBody = $this->pgp_encrypt_string($encryptedBody,array_values($this->recipientKeys));
 
             // Replace the email the developer built with an encrypted version
             $this->message_type = 'encrypted';
@@ -212,178 +485,103 @@ class PHPMailerPGP extends PHPMailer
 
     }
 
-    protected function pgp_sign_string($plaintext,$signature_key=null,$signature_key_pass=null) {
-        $signed = $this->pgp_sign_string_gpgcli($plaintext,$signature_key,$signature_key_pass);
-        if (!is_null($signed)) {
+    /**
+     * Internal method used to sign a string with a secret key.
+     * @param  string $plaintext      The string to be signed.
+     * @param  string $keyFingerprint The fingerprint of the secret key to be used to sign the 
+     * string.
+     * @return string                 The resulting ASCII armored detached signature
+     * @throws phpmailerPGPException
+     * @access private
+     */
+    protected function pgp_sign_string($plaintext,$keyFingerprint) {
+        if (isset($this->keyPassphrases[$keyFingerprint]) && !$this->keyPassphrases[$keyFingerprint]) {
+            $passphrase = $this->keyPassphrases[$keyFingerprint];
+            $this->edebug('Using passphrase for signing key '.$keyFingerprint);
+        }
+        else {
+            $passphrase = null;
+            $this->edebug('No passphrase specified for signing key '.$keyFingerprint);
+        }
+
+        $this->gnupg->clearsignkeys();
+        $success = $this->gnupg->addsignkey($keyFingerprint,$passphrase);
+        $this->gnupg->setsignmode(gnupg::SIG_MODE_DETACH);
+        $this->gnupg->setarmor(1);
+
+        $signed = $this->gnupg->sign($plaintext);
+        if ($signed) {
             return $signed;
         }
 
-        // We were unable to find a method to encrypt data
-        return null;
+        // We were unable to find a method to sign data
+        throw new phpmailerPGPException('Unable to sign message (perhaps the secret key is encrypted with a passphrase?)');
     }
 
     /**
-     * Signs a string using the GPG command line client, if it's installed on the system and in
-     * the path (or specified with phpmailerpgp::GPGPath).
-     * Returns NULL if the system could not find an executable named gpg.
-     * @access public
-     * @param $recipient_key string The email address of the recipient. When using this function the 
-     * recipient's key MUST already exists in the user's keychain. Also be aware that the user 
-     * running this code may be different from the user you upload as (eg: apache often runs as 
-     * 'apache' or 'nobody'). In addition, that user may not have a keychain at all, and may not 
-     * have the proper permissions to create one. You can get around most of these problems by 
-     * calling phpmailerphp::keychainPath() and specifying a path to an existing keychain before 
-     * sending your message.
-     * @param  $string string The string to encrypt
-     * @return string An ASCII armored encrypted string
-     * @throws phpmailerException If the GPG command line client was unable to encrypt the string.
-     * @see https://gnupg.org/ GnuPG web site
-     * @see phpmailerphp::keychainPath()
-     */
-    protected function pgp_sign_string_gpgcli($plaintext,$signature_key=null,$signature_key_pass=null) {
-
-        // Pull in defaults from the object settings, if not specified above.
-        if (is_null($signature_key)) {
-            $signature_key = $this->pgp_signature_key_file;
-        }
-        if (is_null($signature_key_pass)) {
-            $signature_key_pass = $this->pgp_signature_key_pass;
-        }
-
-        // Set up the command to run GPG
-        $command = "/usr/bin/gpg --quiet --no-tty --local-user ".escapeshellarg($signature_key)." --detach-sign --armor --digest-algo ".escapeshellarg($this->micalg);
-
-        // Set up the ways we're going to communicate with the GPG process.
-        $descriptorspec = array(
-           0 => array("pipe", "r"), // stdin
-           1 => array("pipe", "w"), // stdout
-           2 => array("pipe", "r"), // stderr
-        );
-
-        // Safely pass the key passphrase to GPG
-        // "Safely" because presumably you have the passphrase hardcoded somewhere :/
-        if ($signature_key_pass) {
-            $command .= " --batch --passphrase-fd 3";
-            $descriptorspec[3] = array("pipe", "r");  // where we'll write the password to
-        }
-
-        // Start the process and open the io pipes.
-        $process = proc_open($command, $descriptorspec, $pipes);
-
-        // if the command wasn't available, return null
-        if (!is_resource($process)) {
-            return null;
-        }
-
-        // Send our password to unlock the signing key, if needed
-        if ($signature_key_pass) {
-            fwrite($pipes[3], $signature_key_pass);
-            fclose($pipes[3]);
-        }
-
-        // Send our string to encrypt to the process, and then close the pipe so the process knows
-        // we're done sending input.
-        fwrite($pipes[0], $plaintext);
-        fclose($pipes[0]);
-
-        // Read all the output from the process, and then close the pipe (we don't need it anymore).
-        $result = trim(stream_get_contents($pipes[1]));
-        fclose($pipes[1]);
-
-        // If there was data sent to stderr, we want to know what it was. Read it all and then close
-        // the pipe.
-        $error = stream_get_contents($pipes[2]);
-        fclose($pipes[2]);
-
-        // It is important that you close any pipes before calling
-        // proc_close in order to avoid a deadlock
-        $return_value = proc_close($process);
-
-        if ($return_value!==0) {
-            throw new phpmailerException($error);
-        }
-        return $result;
-
-    }
-
-    /**
-     * Encrypts a string using the specified recipient key.
-     * This function calls each of the pgp_encrypt_string_* functions (in order of efficiency) to
-     * try and find an implementation of PGP that we can use. Returns NULL if we were unable to find
-     * any workable implementation of PGP or GPG.
-     * @param $recipient_key string The email address or path to file containing the recipient's 
-     * public key. This is complex. Clarify.
+     * Internal method used to encrypt a string with one or more recipient keys.
      * @param $plaintext string The string to encrypt
-     * @todo Clarify recipient key
-     * @access public
-     * @return string An ASCII armored encrypted string, or NULL if no method of encryption was 
-     * available.
+     * @param $keyFingerprints array An array of key fingerprints to use to encrypt the string.
+     * @return string An ASCII armored encrypted string.
+     * @throws phpmailerPGPException
+     * @access private
      */
-    protected function pgp_encrypt_string($plaintext,$recipient_key) {
-        $encrypted = $this->pgp_encrypt_string_gpgcli($plaintext,$recipient_key);
-        if (!is_null($encrypted)) {
+    protected function pgp_encrypt_string($plaintext,$keyFingerprints) {
+
+        $this->gnupg->clearencryptkeys();
+        foreach ($keyFingerprints as $keyFingerprint) {
+            $this->gnupg->addencryptkey($keyFingerprint);
+        }
+
+        $this->gnupg->setarmor(1);
+
+        $encrypted = $this->gnupg->encrypt($plaintext);
+        if ($encrypted) {
             return $encrypted;
         }
 
         // We were unable to find a method to encrypt data
-        return null;
+        throw new phpmailerPGPException('Unable to encrypt message');
     }
 
     /**
-     * Encrypts a string using the GPG command line client, if it's installed on the system and in
-     * the path (or specified with phpmailerpgp::GPGPath).
-     * Returns NULL if the system could not find an executable named gpg.
-     * @access public
-     * @param $recipient_key string The email address of the recipient. When using this function the 
-     * recipient's key MUST already exists in the user's keychain. Also be aware that the user 
-     * running this code may be different from the user you upload as (eg: apache often runs as 
-     * 'apache' or 'nobody'). In addition, that user may not have a keychain at all, and may not 
-     * have the proper permissions to create one. You can get around most of these problems by 
-     * calling phpmailerphp::keychainPath() and specifying a path to an existing keychain before 
-     * sending your message.
-     * @param  $string string The string to encrypt
-     * @return string An ASCII armored encrypted string
-     * @throws phpmailerException If the GPG command line client was unable to encrypt the string.
-     * @see https://gnupg.org/ GnuPG web site
-     * @see phpmailerphp::keychainPath()
+     * Internal method used to find a valid key fingerprint based on an identifier of some sort.
+     * @param $identifier string Any identifier that could be used to search for a key (usually an 
+     * email address, but could be a key fingerprint, key ID, name, etc)
+     * @param $purpose string The purpose the key will be used for (either 'sign' or 'encrypt'). 
+     * Used to ensure that the key being returned will be suitable for the intended purpose.
+     * @return string The key fingerprint
+     * @throws phpmailerPGPException
+     * @access private
      */
-    protected function pgp_encrypt_string_gpgcli($plaintext,$recipient_key) {
-        $command = "gpg --yes --batch --quiet --recipient ".escapeshellarg($recipient_key)." --encrypt --armor";
-        $descriptorspec = array(
-           0 => array("pipe", "r"),  // stdin is a pipe that the child will read from
-           1 => array("pipe", "w"),  // stdout is a pipe that the child will write to
-           2 => array("pipe", "r"),  // stderr is a pipe that the child will read from
-        );
-        $process = proc_open($command, $descriptorspec, $pipes);
-
-        // if the command wasn't available, return null
-        if (!is_resource($process)) {
-            return null;
+    protected function getKey($identifier,$purpose) {
+        $keys = $this->gnupg->keyinfo($identifier);
+        $fingerprints = array();
+        foreach ($keys as $key) {
+            if ($key['disabled']) continue;
+            if ($key['expired']) continue;
+            if ($key['revoked']) continue;
+            if ($purpose==='sign' && !$key['can_sign']) continue;
+            if ($purpose==='encrypt' && !$key['can_encrypt']) continue;
+            foreach ($key['subkeys'] as $subkey) {
+                if ($subkey['disabled']) continue;
+                if ($subkey['expired']) continue;
+                if ($subkey['revoked']) continue;
+                if ($subkey['invalid']) continue;
+                if ($purpose==='sign' && !$subkey['can_sign']) continue;
+                if ($purpose==='encrypt' && !$subkey['can_encrypt']) continue;
+                $fingerprints[] = $subkey['fingerprint'];
+            }
         }
-
-        // Send our string to encrypt to the process, and then close the pipe so the process knows
-        // we're done sending input.
-        fwrite($pipes[0], $plaintext);
-        fclose($pipes[0]);
-
-        // Read all the output from the process, and then close the pipe (we don't need it anymore).
-        $result = trim(stream_get_contents($pipes[1]));
-        fclose($pipes[1]);
-
-        // If there was data sent to stderr, we want to know what it was. Read it all and then close
-        // the pipe.
-        $error = stream_get_contents($pipes[2]);
-        fclose($pipes[2]);
-
-        // It is important that you close any pipes before calling
-        // proc_close in order to avoid a deadlock
-        $return_value = proc_close($process);
-
-        if ($return_value!==0) {
-            throw new phpmailerException($error);
+        if (count($fingerprints)===1) {
+            return $fingerprints[0];
         }
-        return $result;
-
+        if (count($fingerprints)>1) {
+            throw new phpmailerPGPException('Found more than one active key for '.$identifier.', use addRecipient() or addSignature()');
+        }
+        throw new phpmailerPGPException('Unable to find an active key to '.$purpose.' for '.$identifier.', try importing keys first');
     }
 
 }
+
+class phpmailerPGPException extends phpmailerException {};
