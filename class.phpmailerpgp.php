@@ -103,8 +103,14 @@ class PHPMailerPGP extends PHPMailer
             throw new phpmailerPGPException('PHPMailerPGP requires the GnuPG class');
         }
 
-        if (!$this->gnupgHome) {
+        if (!$this->gnupgHome && isset($_SERVER['HOME'])) {
             $this->gnupgHome = $_SERVER['HOME'].'/.gnupg';
+        }
+        if (!$this->gnupgHome && getenv('HOME')) {
+            $this->gnupgHome = getenv('HOME').'/.gnupg';
+        }
+        if (!$this->gnupgHome) {
+            throw new phpmailerPGPException('Unable to detect GnuPG home path, please call PHPMailerPGP::setGPGHome()');
         }
         if (!file_exists($this->gnupgHome)) {
             throw new phpmailerPGPException('GnuPG home path does not exist');
@@ -270,6 +276,10 @@ class PHPMailerPGP extends PHPMailer
     public function importKey($data) {
         $this->initGNUPG();
 
+        if (!file_exists($this->gnupgHome) || !is_writable($this->gnupgHome)) {
+            throw new phpmailerPGPException('GnuPG home directory is not writable, importing keys will fail');
+        }
+
         $results = $this->gnupg->import($data);
         $this->edebug($results['imported'].' keys imported');
         $this->edebug($results['unchanged'].' keys unchanged');
@@ -346,6 +356,7 @@ class PHPMailerPGP extends PHPMailer
             $this->LE = "\r\n";
 
             // PGP/Mime requires 7 bit encoding (RFC3156 section 3, 5.1)
+            // This also handles wrapping long lines so they don't get messed with
             $this->Encoding = 'quoted-printable';
         }
 
