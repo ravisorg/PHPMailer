@@ -35,6 +35,23 @@ class PHPMailerPGP extends PHPMailer
     protected $signed = false;
 
     /**
+     * Should the message use Memory Hole protected email headers. This will include versions of 
+     * the subject, to, from, and cc headers in the part of the message that is signed and/or 
+     * encrypted. For encrypted emails, the plaintext subject will be replaced with the words 
+     * "Encrypted Message". Note that you must have an email client that understands Memory Hole
+     * headers in order to take advantage of this, and if you don't, you'll see "Encrypted Message"
+     * as the subject of encrypted emails instead of the real subject. This has no effect if both
+     * signing and encryption are disabled.
+     * @see https://github.com/autocrypt/memoryhole
+     */
+    protected $protectedHeaders = false;
+
+    /**
+     * Stores the original (unencrypted) subject line.
+     */
+    protected $unprotectedSubject = null;
+
+    /**
      * If encrypting the email, should the list of recipients from the email be used to try and 
      * find encryption keys? ie: if you're sending an encrypted email, in theory you want a copy 
      * that all of them can decrypt. This may, however, not be true if you're sending to an email 
@@ -93,6 +110,19 @@ class PHPMailerPGP extends PHPMailer
     protected $gnupgHome = null;
 
     /**
+     * Constructor.
+     * @param boolean $exceptions Should we throw external exceptions?
+     */
+    public function __construct($exceptions = false)
+    {
+        // This is not a great way to do this (adding it to __construct) but there doesn't seem to
+        // be a better way that can include the dynamic version number of PHPMailer...
+        $this->XMailer = 'PHPMailerPGP (via PHPMailer ' . $this->Version . ') (https://github.com/ravisorg/PHPMailer/tree/openpgp)';
+
+        parent::__construct($exceptions);
+    }
+
+    /**
      * Initializes the GnuPG class after checking to make sure it's available. Called by anything 
      * that uses the GnuPG methods before they attempt anything.
      * @return void
@@ -143,12 +173,17 @@ class PHPMailerPGP extends PHPMailer
      * must call this before calling Send() if you want a signature attached. If you choose to sign
      * and encrypt an email, it will always be signed first, then encrypted, regardless of the order
      * you call sign() and encrypt() in.
+     *
+     * Ideally this function would be called "sign", and be independet of what type of signatures
+     * are being used, but because PHPMailer has a sign function that takes different parameters,
+     * we can't do that without triggering notices.
+     * 
      * @param  boolean $sign Sign the email? (true/false)
      * @return void
      * @see  PHPMailerPGP::autoAddSignature()
      * @see  PHPMailerPGP::addSignature()
      */
-    public function sign($sign=true) {
+    public function pgpSign($sign=true) {
         $this->initGNUPG();
         $this->signed = (bool) $sign;
     }
@@ -207,6 +242,23 @@ class PHPMailerPGP extends PHPMailer
     public function encrypt($encrypt=true) {
         $this->initGNUPG();
         $this->encrypted = (bool) $encrypt;
+    }
+
+    /**
+     * Specify if the message use Memory Hole protected email headers. This will include versions of 
+     * the subject, to, from, and cc headers in the part of the message that is signed and/or 
+     * encrypted. For encrypted emails, the plaintext subject will be replaced with the words 
+     * "Encrypted Message". Note that you must have an email client that understands Memory Hole
+     * headers in order to take advantage of this, and if you don't, you'll see "Encrypted Message"
+     * as the subject of encrypted emails instead of the real subject. This has no effect if both
+     * signing and encryption are disabled.
+     * @param  boolean $protectHeaders Protect some of the headers in the email? (true/false)
+     * @return void
+     * @see https://github.com/autocrypt/memoryhole
+     */
+    public function protectHeaders($protectHeaders=true) {
+        $this->initGNUPG();
+        $this->protectedHeaders = (bool) $protectHeaders;
     }
 
     /**
@@ -342,6 +394,37 @@ class PHPMailerPGP extends PHPMailer
     }
 
     /**
+     * Prepare a message for sending. Overridden here so we can replace the subject line with 
+     * something generic if protectedHeaders is enabled.
+     * @throws phpmailerException
+     * @return boolean
+     */
+    public function preSend()
+    {
+
+        // Remember what the original subject line was.
+        $this->unprotectedSubject = $this->Subject;
+
+        // Replace the container's subject line with something generic if this email is 
+        // being encrypted (otherwise there's no point).
+        if ($this->protectedHeaders && $this->encrypted) {
+            $this->Subject = 'Encrypted Message';
+        }
+
+        // Allow the regular preSend to run...
+        $success = parent::preSend();
+
+        // Now revert the subject back to the way it was
+        if ($this->Subject = 'Encrypted Message') {
+            $this->Subject = $this->unprotectedSubject;
+        }
+
+        return $success;
+
+    }
+
+
+    /**
      * Assemble the message body.
      * 
      * Extended from PHPMailer to optionally sign and encrypt the message before it's sent.
@@ -366,19 +449,111 @@ class PHPMailerPGP extends PHPMailer
         // Get the "normal" (unsigned / unencrypted) body from the parent class.
         $body = parent::createBody();
 
-        // If the parent returned an empty body, then there's no need to encrypt / sign anything.
-        if (!$body) {
+        // If the parent returned an empty body, or if encrypting and signing are both disabled,
+        // then there's no need to encrypt / sign anything.
+        if (!$body || (!$this->signed && !$this->encrypted)) {
             return $body;
+        }
+
+        // If we're protecting headers, we need to build a container to keep the protected headers
+        // and everything else in.
+        if ($this->protectedHeaders) {
+
+            // Build a few containers here
+            // - multipart/mixed with protected headers
+            //      - text/rfc822-headers with protected headers
+            //      - the normal body that would have been in an unprotected email
+            // Then we'll sign and/or encrypt that as a single part
+
+            $containerBoundary = 'q1_'.md5('pgpcontainer'.uniqid(time()));
+
+            // We want to include these headers a couple times, so let's generate them just once
+            $containerHeaders = '';
+            $containerHeaders .= $this->addrAppend('From', array(array(trim($this->From), $this->FromName)));
+            if (count($this->to) > 0) {
+                $containerHeaders .= $this->addrAppend('To', $this->to);
+            } else {
+                $containerHeaders .= $this->headerLine('To', 'undisclosed-recipients:;');
+            }
+            if (count($this->cc) > 0) {
+                $containerHeaders .= $this->addrAppend('Cc', $this->cc);
+            }
+            $containerHeaders .= $this->headerLine(
+                'Subject',
+                $this->encodeHeader($this->secureHeader(trim($this->unprotectedSubject)))
+            );
+            // Ideally we'd have the Message-ID here too, but PHPMailer doesn't generate it until after
+            // the body is generated, and if we do that now, it'll be moved to lastMessageID. In other
+            // words, there's no way to know what the correct message ID will be at this point.
+
+            // Build the actual container
+            $container = '';
+            $container .= $this->headerLine(
+                'Content-Type',
+                $this->encodeHeader('multipart/mixed; boundary="'.$containerBoundary.'";'.$this->LE."\t".'protected-headers="v1"')
+            );
+
+            // Add in the container headers
+            $container .= $containerHeaders;
+
+            // Line break
+            $container .= $this->LE;
+
+            // Multipart break
+            $container .= $this->textLine('--' . $containerBoundary);
+
+            // The content type of this part (protected headers)
+            $container .= $this->headerLine(
+                'Content-Type',
+                $this->encodeHeader('text/rfc822-headers; protected-headers="v1"')
+            );
+            $container .= $this->headerLine('Content-Disposition', 'inline');
+
+            // Line break
+            $container .= $this->LE;
+
+            // Add in the headers (again)
+            $container .= $containerHeaders;
+
+            // Line break
+            $container .= $this->LE;
+
+            // Multipart break
+            $container .= $this->textLine('--' . $containerBoundary);
+
+            // The content type of this part (whatever it was for the body before we started embedding 
+            // it).
+            $container .= $this->getMailMIME();
+
+            // Now finally the actual body of the email
+            $container .= $body;
+
+            // Close the container with the boundary
+            $container .= $this->LE;
+            $container .= $this->LE;
+            $container .= $this->textLine('--' . $containerBoundary . '--');
+
+            // Container is done! Use it as the body for any further signing / encrypting
+            $body = $container;
+
         }
 
         // If we're using PGP to sign the message, do that before encrypting.
         if ($this->signed) {
-            // Generate a new "body" that contains all the mime parts of the existing body, encrypt
-            // it, then replace the body with the encrypted content.
 
-            // Add in headers so when the encrypted chunk is decoded, it looks like a message block
-            // (RFC3156 section 5.3)
-            $signedBody = $this->getMailMIME() . $body;
+            // Generate a new "body" that contains all the mime parts of the existing body, encrypt
+            // it, then replace the body with the encrypted content. We don't need to include the
+            // headers like we do when encrypting below, because they've already been included in
+            // the container (above).
+            $signedBody = '';
+
+            // If the message is not using protected headers, then we need to include the headers 
+            // that say what kind of message it is, before we include the body.
+            if (!$this->protectedHeaders) {
+                $signedBody .= $this->getMailMIME();
+            }
+
+            $signedBody .= $body;
 
             // Remove trailing whitespace from all lines and convert line all endings to CRLF
             // (RFC3156 section 5.1)
@@ -435,15 +610,25 @@ class PHPMailerPGP extends PHPMailer
             $body .= $this->textLine('--b1_' . $boundary . '--');
         }
 
+        $unencryptedBody = $body;
+
         // If we're using PGP to encrypt the message, do that now.
         if ($this->encrypted) {
+
             // Generate a new "body" that contains all the mime parts of the existing body, encrypt
             // it, then replace the body with the encrypted content.
             // Note that this body may be inherited from the signing code above, which inherited it
             // from the parent object.
+            $encryptedBody = '';
 
-            // Add in headers so when the encrypted chunk is decoded, it looks like a message block
-            $encryptedBody = $this->getMailMIME() . $body;
+            // If the message was signed, or the message does not include protected headers, then 
+            // we need to include the headers with the appropriate content types before we include 
+            // the body.
+            if (!$this->protectedHeaders || $this->signed) {
+                $encryptedBody .= $this->getMailMIME();
+            }
+
+            $encryptedBody .= $body;
 
             // Who are we sending it to?
             if ($this->autoRecipients) {
