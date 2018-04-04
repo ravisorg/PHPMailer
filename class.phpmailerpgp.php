@@ -300,6 +300,9 @@ class PHPMailerPGP extends PHPMailer
      * @see  PHPMailerPGP::importKey()
      */
     public function importKeyFile($path) {
+        if (!file_exists($path)) {
+            throw new phpmailerPGPException('Specified key file path does not exist');
+        }
         $this->importKey(file_get_contents($path));
     }
 
