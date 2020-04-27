@@ -117,7 +117,7 @@ class PHPMailerPGP extends PHPMailer
     {
         // This is not a great way to do this (adding it to __construct) but there doesn't seem to
         // be a better way that can include the dynamic version number of PHPMailer...
-        $this->XMailer = 'PHPMailerPGP (via PHPMailer ' . $this->Version . ') (https://github.com/ravisorg/PHPMailer/tree/openpgp)';
+        $this->XMailer = 'PHPMailerPGP (via PHPMailer ' . static::VERSION . ') (https://github.com/ravisorg/PHPMailer/tree/openpgp)';
 
         parent::__construct($exceptions);
     }
@@ -374,7 +374,7 @@ class PHPMailerPGP extends PHPMailer
                 $result .= $this->textLine("\tprotocol=\"application/pgp-signature\";");
                 $result .= $this->textLine("\tboundary=\"" . $this->boundary[1] . '"');
                 if ($this->Mailer != 'mail') {
-                    $result .= $this->LE;
+                    $result .= static::$LE;
                 }
                 break;
             case 'encrypted':
@@ -382,7 +382,7 @@ class PHPMailerPGP extends PHPMailer
                 $result .= $this->textLine("\tprotocol=\"application/pgp-encrypted\";");
                 $result .= $this->textLine("\tboundary=\"" . $this->boundary[1] . '"');
                 if ($this->Mailer != 'mail') {
-                    $result .= $this->LE;
+                    $result .= static::$LE;
                 }
                 break;
             default:
@@ -439,7 +439,7 @@ class PHPMailerPGP extends PHPMailer
 
         if ($this->signed) {
             // PGP/Mime requires line endings that are CRLF (RFC3156 section 5)
-            $this->LE = "\r\n";
+            static::$LE = "\r\n";
 
             // PGP/Mime requires 7 bit encoding (RFC3156 section 3, 5.1)
             // This also handles wrapping long lines so they don't get messed with
@@ -490,14 +490,14 @@ class PHPMailerPGP extends PHPMailer
             $container = '';
             $container .= $this->headerLine(
                 'Content-Type',
-                $this->encodeHeader('multipart/mixed; boundary="'.$containerBoundary.'";'.$this->LE."\t".'protected-headers="v1"')
+                $this->encodeHeader('multipart/mixed; boundary="'.$containerBoundary.'";'.static::$LE."\t".'protected-headers="v1"')
             );
 
             // Add in the container headers
             $container .= $containerHeaders;
 
             // Line break
-            $container .= $this->LE;
+            $container .= static::$LE;
 
             // Multipart break
             $container .= $this->textLine('--' . $containerBoundary);
@@ -510,13 +510,13 @@ class PHPMailerPGP extends PHPMailer
             $container .= $this->headerLine('Content-Disposition', 'inline');
 
             // Line break
-            $container .= $this->LE;
+            $container .= static::$LE;
 
             // Add in the headers (again)
             $container .= $containerHeaders;
 
             // Line break
-            $container .= $this->LE;
+            $container .= static::$LE;
 
             // Multipart break
             $container .= $this->textLine('--' . $containerBoundary);
@@ -529,8 +529,8 @@ class PHPMailerPGP extends PHPMailer
             $container .= $body;
 
             // Close the container with the boundary
-            $container .= $this->LE;
-            $container .= $this->LE;
+            $container .= static::$LE;
+            $container .= static::$LE;
             $container .= $this->textLine('--' . $containerBoundary . '--');
 
             // Container is done! Use it as the body for any further signing / encrypting
@@ -595,18 +595,18 @@ class PHPMailerPGP extends PHPMailer
             // functions to support PGP/Mime, we'll just build it here
             $body = '';
             $body .= $this->textLine('This is an OpenPGP/MIME signed message (RFC 4880 and 3156)');
-            $body .= $this->LE;
+            $body .= static::$LE;
             $body .= $this->textLine('--b1_' . $boundary);
             $body .= $signedBody; // will already have a CRLF at the end, don't add another one
-            $body .= $this->LE;
+            $body .= static::$LE;
             $body .= $this->textLine('--b1_' . $boundary);
             $body .= $this->textLine('Content-Type: application/pgp-signature; name="signature.asc"');
             $body .= $this->textLine('Content-Description: OpenPGP digital signature');
             $body .= $this->textLine('Content-Disposition: attachment; filename="signature.asc"');
-            $body .= $this->LE;
+            $body .= static::$LE;
             $body .= $signature;
-            $body .= $this->LE;
-            $body .= $this->LE;
+            $body .= static::$LE;
+            $body .= static::$LE;
             $body .= $this->textLine('--b1_' . $boundary . '--');
         }
 
@@ -662,21 +662,21 @@ class PHPMailerPGP extends PHPMailer
             // functions to support PGP/Mime, we'll just build it here
             $body = '';
             $body .= $this->textLine('This is an OpenPGP/MIME encrypted message (RFC 4880 and 3156)');
-            $body .= $this->LE;
+            $body .= static::$LE;
             $body .= $this->textLine('--b1_' . $boundary);
             $body .= $this->textLine('Content-Type: application/pgp-encrypted');
             $body .= $this->textLine('Content-Description: PGP/MIME version identification');
-            $body .= $this->LE;
+            $body .= static::$LE;
             $body .= $this->textLine('Version: 1');
-            $body .= $this->LE;
+            $body .= static::$LE;
             $body .= $this->textLine('--b1_' . $boundary);
             $body .= $this->textLine('Content-Type: application/octet-stream; name="encrypted.asc"');
             $body .= $this->textLine('Content-Description: OpenPGP encrypted message');
             $body .= $this->textLine('Content-Disposition: inline; filename="encrypted.asc"');
-            $body .= $this->LE;
+            $body .= static::$LE;
             $body .= $encryptedBody;
-            $body .= $this->LE;
-            $body .= $this->LE;
+            $body .= static::$LE;
+            $body .= static::$LE;
             $body .= $this->textLine('--b1_' . $boundary . '--');
         }
 
