@@ -1,5 +1,15 @@
+---
+name: Bug report
+about: If you've found a bug in PHPMailer, this is the right place to report it
+title: ''
+labels: ''
+assignees: ''
+
+---
+
 Please check these things before submitting your issue:
 
+- [ ] *Read the error message* you're seeing - it often tells you what is wrong, and may contain useful links & instructions
 - [ ] Make sure you're using the latest version of PHPMailer
 - [ ] Check that your problem is not dealt with in [the troubleshooting guide](https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting), especially if you're having problems connecting to Gmail or GoDaddy
 - [ ] Include sufficient code to reproduce your problem

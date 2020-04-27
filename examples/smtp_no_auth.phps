@@ -5,6 +5,7 @@
 
 //Import the PHPMailer class into the global namespace
 use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\SMTP;
 
 //SMTP needs accurate times, and the PHP time zone MUST be set
 //This should be done in your php.ini, but this is how to do it if you don't have access to that
@@ -17,10 +18,10 @@ $mail = new PHPMailer;
 //Tell PHPMailer to use SMTP
 $mail->isSMTP();
 //Enable SMTP debugging
-// 0 = off (for production use)
-// 1 = client messages
-// 2 = client and server messages
-$mail->SMTPDebug = 2;
+// SMTP::DEBUG_OFF = off (for production use)
+// SMTP::DEBUG_CLIENT = client messages
+// SMTP::DEBUG_SERVER = client and server messages
+$mail->SMTPDebug = SMTP::DEBUG_SERVER;
 //Set the hostname of the mail server
 $mail->Host = 'mail.example.com';
 //Set the SMTP port number - likely to be 25, 465 or 587
@@ -45,7 +46,7 @@ $mail->addAttachment('images/phpmailer_mini.png');
 
 //send the message, check for errors
 if (!$mail->send()) {
-    echo "Mailer Error: " . $mail->ErrorInfo;
+    echo 'Mailer Error: '. $mail->ErrorInfo;
 } else {
-    echo "Message sent!";
+    echo 'Message sent!';
 }

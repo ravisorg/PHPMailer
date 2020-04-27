@@ -32,10 +32,14 @@ $mail->DKIM_selector = 'phpmailer';
 $mail->DKIM_passphrase = '';
 //The identity you're signing as - usually your From address
 $mail->DKIM_identity = $mail->From;
+//Suppress listing signed header fields in signature, defaults to true for debugging purpose
+$mail->DKIM_copyHeaderFields = false;
+//Optionally you can add extra headers for signing to meet special requirements
+$mail->DKIM_extraHeaders = ['List-Unsubscribe', 'List-Help'];
 
 //When you send, the DKIM settings will be used to sign the message
 if (!$mail->send()) {
-    echo "Mailer Error: " . $mail->ErrorInfo;
+    echo 'Mailer Error: '. $mail->ErrorInfo;
 } else {
-    echo "Message sent!";
+    echo 'Message sent!';
 }

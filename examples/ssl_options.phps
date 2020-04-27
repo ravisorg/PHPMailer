@@ -5,6 +5,7 @@
 
 //Import the PHPMailer class into the global namespace
 use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\SMTP;
 
 //SMTP needs accurate times, and the PHP time zone MUST be set
 //This should be done in your php.ini, but this is how to do it if you don't have access to that
@@ -19,10 +20,10 @@ $mail = new PHPMailer;
 $mail->isSMTP();
 
 //Enable SMTP debugging
-// 0 = off (for production use)
-// 1 = client messages
-// 2 = client and server messages
-$mail->SMTPDebug = 2;
+// SMTP::DEBUG_OFF = off (for production use)
+// SMTP::DEBUG_CLIENT = client messages
+// SMTP::DEBUG_SERVER = client and server messages
+$mail->SMTPDebug = SMTP::DEBUG_SERVER;
 
 //Set the hostname of the mail server
 $mail->Host = 'smtp.example.com';
@@ -30,8 +31,8 @@ $mail->Host = 'smtp.example.com';
 //Set the SMTP port number - 587 for authenticated TLS, a.k.a. RFC4409 SMTP submission
 $mail->Port = 587;
 
-//Set the encryption system to use - ssl (deprecated) or tls
-$mail->SMTPSecure = 'tls';
+//Set the encryption mechanism to use - STARTTLS or SMTPS
+$mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
 
 //Custom connection options
 //Note that these settings are INSECURE

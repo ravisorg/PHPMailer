@@ -1,5 +1,97 @@
 # PHPMailer Change Log
 
+* Correct Armenian ISO language code from `am` to `hy`, add mapping for fallback
+* Use correct timeout property in debug output
+
+## Version 6.1.5 (March 14th, 2020
+* Reject invalid custom headers that are empty or contain breaks
+* Various fixes for DKIM issues, especially when using `mail()` transport
+* Drop the `l=` length tag from DKIM signatures; it's a mild security risk
+* Ensure CRLF is used explicitly when needed, rather than `static::$LE`
+* Add a method for trimming header content consistently
+* Some minor tweaks to resolve static analyser complaints
+* Check that attachment files are readable both when adding *and* when sending
+* Work around Outlook bug in mishandling MIME preamble
+* Danish translation improvements
+
+## Version 6.1.4 (December 10th, 2019)
+* Clean up hostname handling
+* Avoid IDN error on older PHP versions, prep for PHP 8.0
+* Don't force RFC2047 folding unnecessarily
+* Enable tests on full release of PHP 7.4
+
+## Version 6.1.3 (November 21st, 2019) 
+* Fix an issue preventing injected debug handlers from working
+* Fix an issue relating to connection timeout
+* Add `SMTP::MAX_REPLY_LENGTH` constant
+* Remove some dev dependencies; phpdoc no longer included
+* Fix an issue where non-compliant servers returning bare codes caused an SMTP hang
+
+## Version 6.1.2 (November 13th, 2019) 
+* Substantial revision of DKIM header generation
+* Use shorter hashes for auto-generated CID values
+* Fix format of content-id headers, and only use them for inline attachments
+* Remove all use of XHTML
+* Lots of coding standards cleanup
+* API docs are now auto-updated via GitHub actions
+* Fix header separation bug created in 6.1.1
+* Fix misidentification of background attributes in SVG images in msgHTML
+
+## Version 6.1.1 (September 27th 2019)
+* Fix misordered version tag
+
+## Version 6.1.0 (September 27th 2019)
+* Multiple bug fixes for folding of long header lines, thanks to @caugner
+* Add support for [RFC2387 child element content-type hint](https://tools.ietf.org/html/rfc2387#section-3.1) in `multipart/related` structures.
+* Support for Ical event methods other than `REQUEST`, thanks to @puhr-mde
+* Change header folding and param separation to use spaces instead of tabs
+* Use ; to separate multiple MIME header params
+* Add support for RFC3461 DSN messages
+* IMAP example code fixed
+* Use PHP temp streams instead of temp files
+* Allow for longer SMTP error codes
+* Updated Brazilian Portuguese translation
+* Throw exceptions on invalid encoding values
+* Add Afrikaans translation, thanks to @Donno191
+* Updated Farsi/Persian translation
+* Add PHP 7.4 to test config
+* Remove some ambiguity about setting XMailer property
+* Improve error checking in mailing list example
+* Drop PHP 5.5 from CI config as it's no longer supported by Travis-CI
+* Fix S/MIME signing
+* Add constants for encryption type
+* More consistent use of constants for encryption, charset, encoding
+* Add PHPMailer logo images
+
+## Version 6.0.7 (February 1st 2019)
+* Include RedHat GPL Cooperation Commitment - see the `COMMITMENT` file for details.
+* Don't exclude composer.json from git exports as it breaks composer updates in projects that use PHPMailer
+* Updated Malay translation
+* Fix language tests
+
+## Version 6.0.6 (November 14th 2018)
+* **SECURITY** Fix potential object injection vulnerability. Reported by Sehun Oh of cyberone.kr.
+* Added Tagalog translation, thanks to @StoneArtz
+* Added Malagache translation, thanks to @Hackinet
+* Updated Serbian translation, fixed incorrect language code, thanks to @mmilanovic4
+* Updated Arabic translations (@MicroDroid)
+* Updated Hungarian translations
+* Updated Dutch translations
+* Updated Slovenian translation (@filips123)
+* Updated Slovak translation (@pcmanik)
+* Updated Italian translation (@sabas)
+* Updated Norwegian translation (@aleskr)
+* Updated Indonesian translation (@mylastof)
+* Add constants for common values, such as `text/html` and `quoted-printable`, and use them
+* Added support for copied headers in DKIM, helping with debugging, and an option to add extra headers to the DKIM signature. See DKIM_sign example for how to use them. Thanks to @gwi-mmuths.
+* Add Campaign Monitor transaction ID pattern matcher
+* Remove deprecated constant and ini values causing warnings in PHP 7.3, added PHP 7.3 build to Travis config.
+* Expanded test coverage
+
+## Version 5.2.27 (November 14th 2018)
+* **SECURITY** Fix potential object injection vulnerability. Reported by Sehun Oh of cyberone.kr.
+* Note that the 5.2 branch is now deprecated and will not receive security updates after 31st December 2018.
+
 ## Version 6.0.5 (March 27th 2018)
 * Re-roll of 6.0.4 to fix missed version file entry. No code changes.
 
