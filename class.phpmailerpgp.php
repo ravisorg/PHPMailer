@@ -20,7 +20,7 @@ class PHPMailerPGP extends PHPMailer
      * This is apparently not supported by the PHP GnuPG module.
      * @type string
      */
-    protected $micalg = 'SHA1';
+    protected $micalg = 'SHA256';
 
     /**
      * Should the message be encrypted.
