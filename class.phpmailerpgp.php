@@ -696,7 +696,7 @@ class PHPMailerPGP extends PHPMailer
      * @access private
      */
     protected function pgp_sign_string($plaintext,$keyFingerprint) {
-        if (isset($this->keyPassphrases[$keyFingerprint]) && !$this->keyPassphrases[$keyFingerprint]) {
+        if (isset($this->keyPassphrases[$keyFingerprint]) && $this->keyPassphrases[$keyFingerprint]) {
             $passphrase = $this->keyPassphrases[$keyFingerprint];
             $this->edebug('Using passphrase for signing key '.$keyFingerprint);
         }
