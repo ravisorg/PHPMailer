@@ -1,5 +1,7 @@
 <?php
 
+namespace PHPMailer\PHPMailer;
+
 /**
  * PHPMailerPGP - PHPMailer subclass adding PGP/MIME signing and encryption.
  * @package PHPMailer
@@ -18,7 +20,7 @@ class PHPMailerPGP extends PHPMailer
      * This is apparently not supported by the PHP GnuPG module.
      * @type string
      */
-    protected $micalg = 'SHA1';
+    protected $micalg = 'SHA256';
 
     /**
      * Should the message be encrypted.
@@ -117,7 +119,7 @@ class PHPMailerPGP extends PHPMailer
     {
         // This is not a great way to do this (adding it to __construct) but there doesn't seem to
         // be a better way that can include the dynamic version number of PHPMailer...
-        $this->XMailer = 'PHPMailerPGP (via PHPMailer ' . $this->Version . ') (https://github.com/ravisorg/PHPMailer/tree/openpgp)';
+        $this->XMailer = 'PHPMailerPGP (via PHPMailer ' . static::VERSION . ') (https://github.com/ravisorg/PHPMailer/tree/openpgp)';
 
         parent::__construct($exceptions);
     }
@@ -130,7 +132,7 @@ class PHPMailerPGP extends PHPMailer
      */
     protected function initGNUPG() {
         if (!class_exists('gnupg')) {
-            throw new phpmailerPGPException('PHPMailerPGP requires the GnuPG class');
+            throw new PGPException('PHPMailerPGP requires the GnuPG class');
         }
 
         if (!$this->gnupgHome && isset($_SERVER['HOME'])) {
@@ -140,17 +142,17 @@ class PHPMailerPGP extends PHPMailer
             $this->gnupgHome = getenv('HOME').'/.gnupg';
         }
         if (!$this->gnupgHome) {
-            throw new phpmailerPGPException('Unable to detect GnuPG home path, please call PHPMailerPGP::setGPGHome()');
+            throw new PGPException('Unable to detect GnuPG home path, please call PHPMailerPGP::setGPGHome()');
         }
         if (!file_exists($this->gnupgHome)) {
-            throw new phpmailerPGPException('GnuPG home path does not exist');
+            throw new PGPException('GnuPG home path does not exist');
         }
         putenv("GNUPGHOME=".escapeshellcmd($this->gnupgHome));
 
         if (!$this->gnupg) {
-            $this->gnupg = new gnupg();
+            $this->gnupg = new \gnupg();
         }
-        $this->gnupg->seterrormode(gnupg::ERROR_EXCEPTION);
+        $this->gnupg->seterrormode(\gnupg::ERROR_EXCEPTION);
     }
 
     /**
@@ -163,7 +165,7 @@ class PHPMailerPGP extends PHPMailer
      */
     public function setGPGHome($home) {
         if (!file_exists($home)) {
-            throw new phpmailerPGPException('Specified path does not exist');
+            throw new PGPException('Specified path does not exist');
         }
         $this->gnupgHome = $home;
     }
@@ -329,7 +331,7 @@ class PHPMailerPGP extends PHPMailer
         $this->initGNUPG();
 
         if (!file_exists($this->gnupgHome) || !is_writable($this->gnupgHome)) {
-            throw new phpmailerPGPException('GnuPG home directory is not writable, importing keys will fail');
+            throw new PGPException('GnuPG home directory is not writable, importing keys will fail');
         }
 
         $results = $this->gnupg->import($data);
@@ -353,7 +355,7 @@ class PHPMailerPGP extends PHPMailer
      */
     public function importKeyFile($path) {
         if (!file_exists($path)) {
-            throw new phpmailerPGPException('Specified key file path does not exist');
+            throw new PGPException('Specified key file path does not exist');
         }
         $this->importKey(file_get_contents($path));
     }
@@ -374,7 +376,7 @@ class PHPMailerPGP extends PHPMailer
                 $result .= $this->textLine("\tprotocol=\"application/pgp-signature\";");
                 $result .= $this->textLine("\tboundary=\"" . $this->boundary[1] . '"');
                 if ($this->Mailer != 'mail') {
-                    $result .= $this->LE;
+                    $result .= static::$LE;
                 }
                 break;
             case 'encrypted':
@@ -382,7 +384,7 @@ class PHPMailerPGP extends PHPMailer
                 $result .= $this->textLine("\tprotocol=\"application/pgp-encrypted\";");
                 $result .= $this->textLine("\tboundary=\"" . $this->boundary[1] . '"');
                 if ($this->Mailer != 'mail') {
-                    $result .= $this->LE;
+                    $result .= static::$LE;
                 }
                 break;
             default:
@@ -439,7 +441,7 @@ class PHPMailerPGP extends PHPMailer
 
         if ($this->signed) {
             // PGP/Mime requires line endings that are CRLF (RFC3156 section 5)
-            $this->LE = "\r\n";
+            static::$LE = "\r\n";
 
             // PGP/Mime requires 7 bit encoding (RFC3156 section 3, 5.1)
             // This also handles wrapping long lines so they don't get messed with
@@ -490,14 +492,14 @@ class PHPMailerPGP extends PHPMailer
             $container = '';
             $container .= $this->headerLine(
                 'Content-Type',
-                $this->encodeHeader('multipart/mixed; boundary="'.$containerBoundary.'";'.$this->LE."\t".'protected-headers="v1"')
+                $this->encodeHeader('multipart/mixed; boundary="'.$containerBoundary.'";'.static::$LE."\t".'protected-headers="v1"')
             );
 
             // Add in the container headers
             $container .= $containerHeaders;
 
             // Line break
-            $container .= $this->LE;
+            $container .= static::$LE;
 
             // Multipart break
             $container .= $this->textLine('--' . $containerBoundary);
@@ -510,13 +512,13 @@ class PHPMailerPGP extends PHPMailer
             $container .= $this->headerLine('Content-Disposition', 'inline');
 
             // Line break
-            $container .= $this->LE;
+            $container .= static::$LE;
 
             // Add in the headers (again)
             $container .= $containerHeaders;
 
             // Line break
-            $container .= $this->LE;
+            $container .= static::$LE;
 
             // Multipart break
             $container .= $this->textLine('--' . $containerBoundary);
@@ -529,8 +531,8 @@ class PHPMailerPGP extends PHPMailer
             $container .= $body;
 
             // Close the container with the boundary
-            $container .= $this->LE;
-            $container .= $this->LE;
+            $container .= static::$LE;
+            $container .= static::$LE;
             $container .= $this->textLine('--' . $containerBoundary . '--');
 
             // Container is done! Use it as the body for any further signing / encrypting
@@ -570,7 +572,7 @@ class PHPMailerPGP extends PHPMailer
                 $this->addSignature($this->getKey($this->From,'sign'));
             }
             if (!$this->signingKey) {
-                throw new phpmailerPGPException('Signing has been enabled, but no signature has been added. Use autoAddSignature() or addSignature()');
+                throw new PGPException('Signing has been enabled, but no signature has been added. Use autoAddSignature() or addSignature()');
             }
 
             // Sign it
@@ -595,18 +597,18 @@ class PHPMailerPGP extends PHPMailer
             // functions to support PGP/Mime, we'll just build it here
             $body = '';
             $body .= $this->textLine('This is an OpenPGP/MIME signed message (RFC 4880 and 3156)');
-            $body .= $this->LE;
+            $body .= static::$LE;
             $body .= $this->textLine('--b1_' . $boundary);
             $body .= $signedBody; // will already have a CRLF at the end, don't add another one
-            $body .= $this->LE;
+            $body .= static::$LE;
             $body .= $this->textLine('--b1_' . $boundary);
             $body .= $this->textLine('Content-Type: application/pgp-signature; name="signature.asc"');
             $body .= $this->textLine('Content-Description: OpenPGP digital signature');
             $body .= $this->textLine('Content-Disposition: attachment; filename="signature.asc"');
-            $body .= $this->LE;
+            $body .= static::$LE;
             $body .= $signature;
-            $body .= $this->LE;
-            $body .= $this->LE;
+            $body .= static::$LE;
+            $body .= static::$LE;
             $body .= $this->textLine('--b1_' . $boundary . '--');
         }
 
@@ -640,7 +642,7 @@ class PHPMailerPGP extends PHPMailer
                 }
             }
             if (!$this->recipientKeys) {
-                throw new phpmailerPGPException('Encryption has been enabled, but no recipients have been added. Use autoAddRecipients() or addRecipient()');
+                throw new PGPException('Encryption has been enabled, but no recipients have been added. Use autoAddRecipients() or addRecipient()');
             }
 
             // Encrypt it for all those people
@@ -662,21 +664,21 @@ class PHPMailerPGP extends PHPMailer
             // functions to support PGP/Mime, we'll just build it here
             $body = '';
             $body .= $this->textLine('This is an OpenPGP/MIME encrypted message (RFC 4880 and 3156)');
-            $body .= $this->LE;
+            $body .= static::$LE;
             $body .= $this->textLine('--b1_' . $boundary);
             $body .= $this->textLine('Content-Type: application/pgp-encrypted');
             $body .= $this->textLine('Content-Description: PGP/MIME version identification');
-            $body .= $this->LE;
+            $body .= static::$LE;
             $body .= $this->textLine('Version: 1');
-            $body .= $this->LE;
+            $body .= static::$LE;
             $body .= $this->textLine('--b1_' . $boundary);
             $body .= $this->textLine('Content-Type: application/octet-stream; name="encrypted.asc"');
             $body .= $this->textLine('Content-Description: OpenPGP encrypted message');
             $body .= $this->textLine('Content-Disposition: inline; filename="encrypted.asc"');
-            $body .= $this->LE;
+            $body .= static::$LE;
             $body .= $encryptedBody;
-            $body .= $this->LE;
-            $body .= $this->LE;
+            $body .= static::$LE;
+            $body .= static::$LE;
             $body .= $this->textLine('--b1_' . $boundary . '--');
         }
 
@@ -690,11 +692,11 @@ class PHPMailerPGP extends PHPMailer
      * @param  string $keyFingerprint The fingerprint of the secret key to be used to sign the 
      * string.
      * @return string                 The resulting ASCII armored detached signature
-     * @throws phpmailerPGPException
+     * @throws PGPException
      * @access private
      */
     protected function pgp_sign_string($plaintext,$keyFingerprint) {
-        if (isset($this->keyPassphrases[$keyFingerprint]) && !$this->keyPassphrases[$keyFingerprint]) {
+        if (isset($this->keyPassphrases[$keyFingerprint]) && $this->keyPassphrases[$keyFingerprint]) {
             $passphrase = $this->keyPassphrases[$keyFingerprint];
             $this->edebug('Using passphrase for signing key '.$keyFingerprint);
         }
@@ -705,7 +707,7 @@ class PHPMailerPGP extends PHPMailer
 
         $this->gnupg->clearsignkeys();
         $success = $this->gnupg->addsignkey($keyFingerprint,$passphrase);
-        $this->gnupg->setsignmode(gnupg::SIG_MODE_DETACH);
+        $this->gnupg->setsignmode(\gnupg::SIG_MODE_DETACH);
         $this->gnupg->setarmor(1);
 
         $signed = $this->gnupg->sign($plaintext);
@@ -714,7 +716,7 @@ class PHPMailerPGP extends PHPMailer
         }
 
         // We were unable to find a method to sign data
-        throw new phpmailerPGPException('Unable to sign message (perhaps the secret key is encrypted with a passphrase?)');
+        throw new PGPException('Unable to sign message (perhaps the secret key is encrypted with a passphrase?)');
     }
 
     /**
@@ -722,7 +724,7 @@ class PHPMailerPGP extends PHPMailer
      * @param $plaintext string The string to encrypt
      * @param $keyFingerprints array An array of key fingerprints to use to encrypt the string.
      * @return string An ASCII armored encrypted string.
-     * @throws phpmailerPGPException
+     * @throws PGPException
      * @access private
      */
     protected function pgp_encrypt_string($plaintext,$keyFingerprints) {
@@ -740,7 +742,7 @@ class PHPMailerPGP extends PHPMailer
         }
 
         // We were unable to find a method to encrypt data
-        throw new phpmailerPGPException('Unable to encrypt message');
+        throw new PGPException('Unable to encrypt message');
     }
 
     /**
@@ -750,7 +752,7 @@ class PHPMailerPGP extends PHPMailer
      * @param $purpose string The purpose the key will be used for (either 'sign' or 'encrypt'). 
      * Used to ensure that the key being returned will be suitable for the intended purpose.
      * @return string The key fingerprint
-     * @throws phpmailerPGPException
+     * @throws PGPException
      * @access private
      */
     protected function getKey($identifier,$purpose) {
@@ -776,11 +778,11 @@ class PHPMailerPGP extends PHPMailer
             return $fingerprints[0];
         }
         if (count($fingerprints)>1) {
-            throw new phpmailerPGPException('Found more than one active key for '.$identifier.', use addRecipient() or addSignature()');
+            throw new PGPException('Found more than one active key for '.$identifier.', use addRecipient() or addSignature()');
         }
-        throw new phpmailerPGPException('Unable to find an active key to '.$purpose.' for '.$identifier.', try importing keys first');
+        throw new PGPException('Unable to find an active key to '.$purpose.' for '.$identifier.', try importing keys first');
     }
 
 }
 
-class phpmailerPGPException extends phpmailerException {};
+class PGPException extends Exception {};

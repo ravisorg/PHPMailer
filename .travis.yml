@@ -1,4 +1,5 @@
 language: php
+php: '5.6'
 
 cache:
   directories:
@@ -10,7 +11,6 @@ before_install:
 
 install:
   - REMOVE_PACKAGE="friendsofphp/php-cs-fixer"; if [ "$CS_CHECK" = 1 ]; then REMOVE_PACKAGE="phpunit/phpunit"; fi; composer remove --no-update --no-scripts --dev $REMOVE_PACKAGE
-  - composer remove --no-update --no-scripts --dev phpdocumentor/phpdocumentor
   - composer install
   - if [ "$CODE_COVERAGE" != 1 ]; then phpenv config-rm xdebug.ini || true; fi
 
@@ -47,15 +47,20 @@ jobs:
       before_script:
       script: ./vendor/bin/php-cs-fixer --diff --dry-run --verbose fix
       after_script:
-      php: 5.5
+      php: 5.6
       env: CS_CHECK=1
     - stage: test
-      php: 5.5
-    - php: 5.6
     - php: 7.0
     - php: 7.1
-      env: CODE_COVERAGE=1
     - php: 7.2
+    - php: 7.3
+    - php: 7.4
+      env: CODE_COVERAGE=1
     - php: nightly
     - php: hhvm
       dist: trusty
+
+matrix:
+  allow_failures:
+    - php: nightly
+    - php: hhvm

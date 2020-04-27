@@ -2,6 +2,12 @@
 
 # PHPMailerPGP - A full-featured email creation and transfer class for PHP with support for PGP/GPG email signing and encryption.
 
+Build status: [![Build Status](https://travis-ci.org/PHPMailer/PHPMailer.svg)](https://travis-ci.org/PHPMailer/PHPMailer)
+[![Scrutinizer Quality Score](https://scrutinizer-ci.com/g/PHPMailer/PHPMailer/badges/quality-score.png?s=3758e21d279becdf847a557a56a3ed16dfec9d5d)](https://scrutinizer-ci.com/g/PHPMailer/PHPMailer/)
+[![Code Coverage](https://scrutinizer-ci.com/g/PHPMailer/PHPMailer/badges/coverage.png?s=3fe6ca5fe8cd2cdf96285756e42932f7ca256962)](https://scrutinizer-ci.com/g/PHPMailer/PHPMailer/)
+
+[![Latest Stable Version](https://poser.pugx.org/phpmailer/phpmailer/v/stable.svg)](https://packagist.org/packages/phpmailer/phpmailer) [![Total Downloads](https://poser.pugx.org/phpmailer/phpmailer/downloads)](https://packagist.org/packages/phpmailer/phpmailer) [![Latest Unstable Version](https://poser.pugx.org/phpmailer/phpmailer/v/unstable.svg)](https://packagist.org/packages/phpmailer/phpmailer) [![License](https://poser.pugx.org/phpmailer/phpmailer/license.svg)](https://packagist.org/packages/phpmailer/phpmailer) [![API Docs](https://github.com/phpmailer/phpmailer/workflows/Docs/badge.svg)](http://phpmailer.github.io/PHPMailer/)
+
 See the main [PHPMailer](https://www.github.com/PHPMailer/PHPMailer) page for all the features PHPMailer supports. This page will document only the PGP additions.
 
 ## Class Features
@@ -31,9 +37,16 @@ Set up your PHPMailer like you would normally:
 
 ```php
 <?php
-require 'PHPMailerAutoload.php';
+require_once 'src/Exception.php';
+require_once 'src/OAuth.php';
+require_once 'src/PHPMailer.php';
+require_once 'src/POP3.php';
+require_once 'src/SMTP.php';
+require_once 'PHPMailerPGP.php';
 
-$mail = new PHPMailer;
+use PHPMailer\PHPMailer\PHPMailerPGP;
+
+$mail = new PHPMailerPGP;
 
 //$mail->SMTPDebug = 3;                               // Enable verbose debug output
 
@@ -77,6 +90,7 @@ $mail->pgpSign(true);
 // Turn on protected headers for your email
 $mail->protectHeaders(true);
 
+<<<<<<< HEAD
 // Send!
 if(!$mail->send()) {
     echo 'Message could not be sent.';
@@ -85,4 +99,3 @@ if(!$mail->send()) {
     echo 'Message has been sent';
 }
 ```
-
