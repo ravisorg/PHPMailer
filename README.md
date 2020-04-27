@@ -42,7 +42,7 @@ require_once 'src/OAuth.php';
 require_once 'src/PHPMailer.php';
 require_once 'src/POP3.php';
 require_once 'src/SMTP.php';
-require_once 'class.phpmailerpgp.php';
+require_once 'PHPMailerPGP.php';
 
 use PHPMailer\PHPMailer\PHPMailerPGP;
 
